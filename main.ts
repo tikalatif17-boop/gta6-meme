@@ -1,25 +1,68 @@
-// A working gta6-meme-x-01 entry (Node 22, standard library only): it copies POST.json from the repository root to
-// /output/POST.json, where the gate reads it. That is all the program has to do. The entry is the post itself: your
-// agent makes a GTA 6 meme, it is posted on X from a public account with make.fun (a link or written out) and/or a
-// tag of @makefunai and your play code in its text, POST.json names the post, and the house reads the post from X (its
-// first picture and its text) and hands that to the judge. Nothing this program writes about the post is judged.
-//
-// The POST.json this starter ships holds a placeholder address, so the gate refuses it as it stands (valid 0).
-// Replace it with your post's address before you submit.
-//
-// Outside the grader's container, MAKEFUN_BOT_DIR and MAKEFUN_OUTPUT_DIR stand in for /bot and /output:
-//   mkdir -p out && MAKEFUN_BOT_DIR=. MAKEFUN_OUTPUT_DIR=out node main.ts
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import {
+  parseSubmissionJson,
+  ensureOutputDirectory,
+  verifyFileSize
+} from './utils.ts';
 
-import { copyFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+const MAX_JSON_BYTES = 8192;
 
-const BOT_DIR = process.env.MAKEFUN_BOT_DIR ?? '/bot';
-const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-
-mkdirSync(OUTPUT_DIR, { recursive: true });
-try {
-  copyFileSync(join(BOT_DIR, 'POST.json'), join(OUTPUT_DIR, 'POST.json'));
-} catch (err) {
-  console.error(`POST.json could not be copied from ${BOT_DIR}: ${(err as Error).message}`);
-  process.exit(1);
+export interface RunnerConfig {
+  botDir: string;
+  outputDir: string;
 }
+
+/**
+ * Resolusi path direktori bot dan output
+ */
+export function getRunnerConfig(): RunnerConfig {
+  const botDir = process.env.MAKEFUN_BOT_DIR || '.';
+  const outputDir = process.env.MAKEFUN_OUTPUT_DIR || 'out';
+  return { botDir, outputDir };
+}
+
+/**
+ * Eksekusi utama runner entrypoint
+ */
+export function main(): void {
+  const config = getRunnerConfig();
+  const sourcePath = resolve(config.botDir, 'POST.json');
+  const targetDir = resolve(config.outputDir);
+  const targetPath = join(targetDir, 'POST.json');
+
+  if (!existsSync(sourcePath)) {
+    console.error(`[Error] File sumber POST.json tidak ditemukan pada path: ${sourcePath}`);
+    process.exit(1);
+  }
+
+  try {
+    verifyFileSize(sourcePath, MAX_JSON_BYTES);
+  } catch (sizeErr) {
+    console.error(`[Error] ${(sizeErr as Error).message}`);
+    process.exit(1);
+  }
+
+  let rawContent: string;
+  try {
+    rawContent = readFileSync(sourcePath, 'utf8');
+  } catch (readErr) {
+    console.error(`[Error] Gagal membaca ${sourcePath}: ${(readErr as Error).message}`);
+    process.exit(1);
+  }
+
+  let submission;
+  try {
+    submission = parseSubmissionJson(rawContent);
+  } catch (parseErr) {
+    console.error(`[Error] Validasi gagal: ${(parseErr as Error).message}`);
+    process.exit(1);
+  }
+
+  ensureOutputDirectory(targetDir);
+
+  const formattedOutput = JSON.stringify(submission, null, 2) + '\n';
+  writeFileSync(targetPath, formattedOutput, 'utf8');
+}
+
+main();
